@@ -615,14 +615,6 @@ tbody td a:hover {
   transition: all 0.5s ease-in-out;
 }
 
-/* Penyesuaian khusus untuk HP agar tidak menutupi konten utama */
-@media (max-width: 900px) {
-  .img-mengambang {
-    max-width: 110px;
-    max-height: 90px;
-    top: 80px;
-  }
-}
 
 /* =========================================
    ANIMASI GAMBAR MENGAMBANG BERGERAK
