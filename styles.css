@@ -615,6 +615,14 @@ tbody td a:hover {
   transition: all 0.5s ease-in-out;
 }
 
+/* Penyesuaian khusus untuk HP agar tidak menutupi konten utama */
+@media (max-width: 900px) {
+  .img-mengambang {
+    max-width: 110px;
+    max-height: 90px;
+    top: 80px;
+  }
+}
 
 /* =========================================
    ANIMASI GAMBAR MENGAMBANG BERGERAK
@@ -654,9 +662,29 @@ tbody td a:hover {
   cursor: pointer; /* Memberikan tanda bahwa gambar interaktif */
 }
 
+/* Penyesuaian khusus untuk HP */
+@media (max-width: 900px) {
+  .img-mengambang {
+    max-width: 110px;
+    max-height: 90px;
+    top: 80px;
+  }
+}
+
 /* Sembunyikan gambar mengambang sepenuhnya khusus di HP */
 @media (max-width: 900px) {
   .img-mengambang {
     display: none !important;
   }
+}
+
+
+
+/* MEMASTIKAN TOMBOL TAMBAH 100% RESPONSIF DI HP */
+#btn-tambah {
+  position: relative;
+  z-index: 9999; /* Lapisan paling atas, tidak bisa ditutupi elemen apa pun */
+  pointer-events: auto !important;
+  touch-action: manipulation; /* Menghilangkan jeda sentuh bawaan browser HP */
+  -webkit-tap-highlight-color: transparent; /* Menghilangkan efek kedip abu-abu saat dipencet di HP */
 }
