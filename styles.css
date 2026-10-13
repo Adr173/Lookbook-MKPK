@@ -662,11 +662,9 @@ tbody td a:hover {
   cursor: pointer; /* Memberikan tanda bahwa gambar interaktif */
 }
 
-/* Penyesuaian khusus untuk HP */
+/* Sembunyikan gambar mengambang sepenuhnya khusus di HP */
 @media (max-width: 900px) {
   .img-mengambang {
-    max-width: 110px;
-    max-height: 90px;
-    top: 80px;
+    display: none !important;
   }
 }
