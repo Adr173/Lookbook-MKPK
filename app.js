@@ -10,6 +10,19 @@ const daftarKegiatan = document.getElementById("daftar-kegiatan");
 const btnSubmit = document.getElementById("btn-submit");
 const btnDownloadWord = document.getElementById("btn-download-word");
 
+
+
+if (btnTambah) {
+  btnTambah.addEventListener("click", function (e) {
+    e.preventDefault();
+    if (formSection) {
+      formSection.hidden = false;
+      btnTambah.hidden = true;
+    }
+  });
+}
+
+
 let dataGlobalKegiatan = [];
 const ITEM_PER_PAGE = 5; // Batas jumlah kegiatan per halaman
 
@@ -686,5 +699,10 @@ btnDownloadWord.addEventListener("click", function () {
   link.click();
   document.body.removeChild(link);
 });
+
+
+
+
+
 
 muatKegiatan();
