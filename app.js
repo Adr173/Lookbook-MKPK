@@ -13,12 +13,15 @@ const btnDownloadWord = document.getElementById("btn-download-word");
 let dataGlobalKegiatan = [];
 const ITEM_PER_PAGE = 5; // Batas jumlah kegiatan per halaman
 
-btnTambah.addEventListener("click", function () {
+// Menggunakan event 'pointerdown' agar responsif di HP (tanpa jeda 300ms)
+btnTambah.addEventListener("pointerdown", function (e) {
+  e.preventDefault(); // Mencegah jeda klik bawaan HP
   formSection.hidden = false;
   btnTambah.hidden = true;
 });
 
-btnBatal.addEventListener("click", function () {
+btnBatal.addEventListener("pointerdown", function (e) {
+  e.preventDefault();
   formKegiatan.reset();
   formSection.hidden = true;
   btnTambah.hidden = false;
@@ -28,8 +31,8 @@ btnBatal.addEventListener("click", function () {
 // PENGIRIMAN DATA (SIMPAN)
 // ==========================================
 formKegiatan.addEventListener("submit", function (e) {
-  e.preventDefault();
-  btnSubmit.textContent = "Menyimpan...";
+  e.preventDefault(); 
+  btnSubmit.textContent = "Memproses foto..."; // Umpan balik instan di HP
   btnSubmit.disabled = true;
 
   const dataForm = {
@@ -37,37 +40,38 @@ formKegiatan.addEventListener("submit", function (e) {
     aktivitas: document.getElementById("aktivitas").value,
     mulai: document.getElementById("mulai").value,
     selesai: document.getElementById("selesai").value,
-    action: "save",
+    action: "save" 
   };
 
   const fotoInput = document.getElementById("foto");
   if (fotoInput.files.length > 0) {
     const file = fotoInput.files[0];
     const reader = new FileReader();
-
-    reader.onload = function (event) {
+    
+    reader.onload = function(event) {
       const img = new Image();
-      img.onload = function () {
-        const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 600;
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 300; // Ukuran optimal untuk Word & HP
         const scaleSize = MAX_WIDTH / img.width;
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scaleSize;
-
-        const ctx = canvas.getContext("2d");
+        
+        const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
-
+        
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+        
         dataForm.fotoBase64 = compressedBase64;
         dataForm.namaFoto = file.name;
-        dataForm.mimeType = "image/jpeg";
-
+        dataForm.mimeType = 'image/jpeg';
+        
+        btnSubmit.textContent = "Menyimpan ke server...";
         kirimData(dataForm);
-      };
+      }
       img.src = event.target.result;
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(file); 
   } else {
     kirimData(dataForm);
   }
