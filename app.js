@@ -376,6 +376,39 @@ function muatKegiatan() {
 }
 
 // ==========================================
+// PERMINTAAN JSONP (PROMISE) - dipakai untuk mengambil foto saat download Word
+// ==========================================
+function jsonpRequest(query, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    const callbackName =
+      "kodeFoto_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+    const script = document.createElement("script");
+    const timer = setTimeout(function () {
+      bersih();
+      reject(new Error("Waktu habis."));
+    }, timeoutMs);
+
+    function bersih() {
+      clearTimeout(timer);
+      delete window[callbackName];
+      script.remove();
+    }
+
+    window[callbackName] = function (hasil) {
+      bersih();
+      resolve(hasil);
+    };
+    script.onerror = function () {
+      bersih();
+      reject(new Error("Gagal menghubungi server."));
+    };
+    script.src =
+      API_URL + "?" + query + "&callback=" + encodeURIComponent(callbackName);
+    document.body.appendChild(script);
+  });
+}
+
+// ==========================================
 // LOGIKA DOWNLOAD KE WORD (PENGATURAN GAMBAR 30mm)
 // ==========================================
 function formatTanggalWord(tanggalStr) {
@@ -428,18 +461,14 @@ function formatTotalWaktu(totalMenit) {
   return `${menit} menit`;
 }
 
-btnDownloadWord.addEventListener("click", function () {
-  if (!dataGlobalKegiatan || dataGlobalKegiatan.length === 0) {
-    alert("Belum ada data untuk diunduh.");
-    return;
-  }
-
-  // dataGlobalKegiatan sudah terurut (tanggal, lalu jam mulai),
-  // sehingga pengelompokan per tanggal di bawah otomatis kronologis.
+function buatDanUnduhWord(dataKegiatan) {
+  // dataKegiatan berasal dari dataGlobalKegiatan yang sudah terurut
+  // (tanggal, lalu jam mulai), sehingga pengelompokan per tanggal
+  // di bawah otomatis kronologis.
   let groupedData = {};
   let dateKeys = [];
 
-  dataGlobalKegiatan.forEach((item) => {
+  dataKegiatan.forEach((item) => {
     let dateKey = ambilTanggalKey(item);
 
     if (!groupedData[dateKey]) {
@@ -546,6 +575,54 @@ btnDownloadWord.addEventListener("click", function () {
   setTimeout(function () {
     URL.revokeObjectURL(url);
   }, 1000);
+}
+
+// Tombol Download Word: ambil foto dari server HANYA sekarang (daftar di web tanpa foto)
+btnDownloadWord.addEventListener("click", function () {
+  if (!dataGlobalKegiatan || dataGlobalKegiatan.length === 0) {
+    alert("Belum ada data untuk diunduh.");
+    return;
+  }
+
+  const teksAsli = btnDownloadWord.textContent;
+  btnDownloadWord.disabled = true;
+  btnDownloadWord.textContent = "Menyiapkan foto...";
+
+  jsonpRequest("action=foto", 60000)
+    .then(
+      function (hasil) {
+        if (!hasil || !hasil.success || !Array.isArray(hasil.data)) return null;
+        return hasil.data;
+      },
+      function () {
+        return null;
+      },
+    )
+    .then(function (daftarFoto) {
+      btnDownloadWord.disabled = false;
+      btnDownloadWord.textContent = teksAsli;
+
+      if (!daftarFoto) {
+        if (confirm("Foto gagal diambil dari server. Unduh Word tanpa foto?")) {
+          buatDanUnduhWord(dataGlobalKegiatan);
+        }
+        return;
+      }
+
+      const petaFoto = {};
+      daftarFoto.forEach(function (f) {
+        petaFoto[f.id] = f.fotoBase64;
+      });
+
+      // Foto digabung hanya untuk file Word (tidak disimpan di memori halaman)
+      const dataWord = dataGlobalKegiatan.map(function (item) {
+        return petaFoto[item.id]
+          ? Object.assign({}, item, { fotoBase64: petaFoto[item.id] })
+          : item;
+      });
+
+      buatDanUnduhWord(dataWord);
+    });
 });
 
 muatKegiatan();
@@ -574,7 +651,27 @@ function setGambarRandom() {
     "Gambar7.jpg",
     "Gambar8.jpg",
     "Gambar9.jpg",
-    "Gambar10.jpg"
+    "Gambar10.jpg",
+    "Gambar11.jpg",
+    "Gambar12.jpg",
+    "Gambar13.jpg",
+    "Gambar14.jpg",
+    "Gambar15.jpg",
+    "Gambar16.jpg",
+    "Gambar17.jpg",
+    "Gambar18.jpg",
+    "Gambar19.jpg",
+    "Gambar20.jpg",
+    "Gambar21.jpg",
+    "Gambar22.jpg",
+    "Gambar23.jpg",
+    "Gambar24.jpg",
+    "Gambar25.jpg",
+    "Gambar26.jpg",
+    "Gambar27.jpg",
+    "Gambar28.jpg",
+    "Gambar29.jpg",
+    "Gambar30.jpg"
   ];
 
   const indeksGambar = Math.floor(Math.random() * daftarGambar.length);
