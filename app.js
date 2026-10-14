@@ -46,32 +46,40 @@ formKegiatan.addEventListener("submit", function (e) {
   const fotoInput = document.getElementById("foto");
   if (fotoInput.files.length > 0) {
     const file = fotoInput.files[0];
-    const reader = new FileReader();
-    
-    reader.onload = function(event) {
-      const img = new Image();
-      img.onload = function() {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 300; // Ukuran optimal untuk Word & HP
-        const scaleSize = MAX_WIDTH / img.width;
-        canvas.width = MAX_WIDTH;
-        canvas.height = img.height * scaleSize;
-        
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-        
-        dataForm.fotoBase64 = compressedBase64;
-        dataForm.namaFoto = file.name;
-        dataForm.mimeType = 'image/jpeg';
-        
-        btnSubmit.textContent = "Menyimpan ke server...";
-        kirimData(dataForm);
-      }
-      img.src = event.target.result;
+    // objectURL (bukan FileReader/base64) agar foto asli HP yang besar
+    // tidak menjadi string raksasa di memori
+    const fotoUrlSementara = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 300; // Ukuran optimal untuk Word & HP
+      const scaleSize = MAX_WIDTH / img.width;
+      canvas.width = MAX_WIDTH;
+      canvas.height = img.height * scaleSize;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+      URL.revokeObjectURL(fotoUrlSementara);
+
+      dataForm.fotoBase64 = compressedBase64;
+      dataForm.namaFoto = file.name;
+      dataForm.mimeType = 'image/jpeg';
+
+      btnSubmit.textContent = "Menyimpan ke server...";
+      kirimData(dataForm);
     };
-    reader.readAsDataURL(file); 
+
+    img.onerror = function() {
+      URL.revokeObjectURL(fotoUrlSementara);
+      btnSubmit.textContent = "Simpan Kegiatan";
+      btnSubmit.disabled = false;
+      alert("Foto tidak bisa dibaca. Coba pilih foto lain.");
+    };
+
+    img.src = fotoUrlSementara; 
   } else {
     kirimData(dataForm);
   }
@@ -121,7 +129,10 @@ function hapusKegiatan(idKegiatan) {
     .then((result) => {
       if (result.success) {
         alert("Kegiatan berhasil dihapus!");
-        muatKegiatan();
+        dataGlobalKegiatan = dataGlobalKegiatan.filter(function (k) {
+          return String(k.id) !== String(idKegiatan);
+        });
+        tampilkanKegiatan(halamanSekarang);
       } else {
         alert("Gagal menghapus: " + result.message);
       }
@@ -310,13 +321,26 @@ function buatTombolHalaman(totalData, halamanAktif) {
   wadahHalaman.appendChild(info);
 }
 
+function tampilkanPesanTabel(teks) {
+  if (dataGlobalKegiatan.length > 0) return; // jangan hapus daftar yang sudah tampil
+  daftarKegiatan.replaceChildren();
+  const tr = document.createElement("tr");
+  const td = document.createElement("td");
+  td.colSpan = 6;
+  td.textContent = teks;
+  td.style.textAlign = "center";
+  tr.appendChild(td);
+  daftarKegiatan.appendChild(tr);
+}
+
 function muatKegiatan() {
   const callbackName = "kodeLookbookCallback_" + Date.now();
   const script = document.createElement("script");
   const timeout = setTimeout(function () {
     bersihkan();
     console.error("Waktu pemuatan kegiatan habis.");
-  }, 15000);
+    tampilkanPesanTabel("Memuat data terlalu lama. Muat ulang halaman.");
+  }, 45000);
 
   function bersihkan() {
     clearTimeout(timeout);
@@ -343,6 +367,7 @@ function muatKegiatan() {
   script.onerror = function () {
     bersihkan();
     console.error("Gagal menghubungi Google Sheets.");
+    tampilkanPesanTabel("Gagal memuat data. Periksa koneksi lalu muat ulang.");
   };
 
   script.src =
@@ -549,27 +574,7 @@ function setGambarRandom() {
     "Gambar7.jpg",
     "Gambar8.jpg",
     "Gambar9.jpg",
-    "Gambar10.jpg",
-    "Gambar11.jpg",
-    "Gambar12.jpg",
-    "Gambar13.jpg",
-    "Gambar14.jpg",
-    "Gambar15.jpg",
-    "Gambar16.jpg",
-    "Gambar17.jpg",
-    "Gambar18.jpg",
-    "Gambar19.jpg",
-    "Gambar20.jpg",
-    "Gambar21.jpg",
-    "Gambar22.jpg",
-    "Gambar23.jpg",
-    "Gambar24.jpg",
-    "Gambar25.jpg",
-    "Gambar26.jpg",
-    "Gambar27.jpg",
-    "Gambar28.jpg",
-    "Gambar29.jpg",
-    "Gambar30.jpg"
+    "Gambar10.jpg"
   ];
 
   const indeksGambar = Math.floor(Math.random() * daftarGambar.length);
