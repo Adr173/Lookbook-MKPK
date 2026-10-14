@@ -22,10 +22,63 @@ btnTambah.addEventListener("pointerdown", function (e) {
 
 btnBatal.addEventListener("pointerdown", function (e) {
   e.preventDefault();
+  idSedangDiedit = null;
+  aturModeForm(false);
   formKegiatan.reset();
   formSection.hidden = true;
   btnTambah.hidden = false;
 });
+
+// ==========================================
+// MODE EDIT KEGIATAN (memakai form yang sama dengan Tambah)
+// ==========================================
+let idSedangDiedit = null; // null = mode tambah, berisi id = mode edit
+
+function labelSubmit() {
+  return idSedangDiedit ? "Simpan Perubahan" : "Simpan Kegiatan";
+}
+
+function aturModeForm(sedangEdit) {
+  const judul = formSection.querySelector("h2");
+  if (judul) judul.textContent = sedangEdit ? "Edit Kegiatan" : "Tambah Kegiatan";
+  const labelFoto = document.querySelector('label[for="foto"]');
+  if (labelFoto) {
+    labelFoto.textContent = sedangEdit
+      ? "Ganti Dokumentasi (opsional, kosongkan jika tidak diganti)"
+      : "Dokumentasi (JPG/PNG)";
+  }
+  btnSubmit.textContent = sedangEdit ? "Simpan Perubahan" : "Simpan Kegiatan";
+}
+
+function formatJamInput(teks) {
+  // "9.30" / "09:30" -> "09:30" (format yang diminta input type="time")
+  if (!teks) return "";
+  const bagian = teks.replace(".", ":").split(":");
+  return bagian[0].padStart(2, "0") + ":" + bagian[1];
+}
+
+function mulaiEdit(item) {
+  if (
+    !formSection.hidden &&
+    !confirm("Form sedang terbuka. Isian yang belum disimpan akan hilang. Lanjut edit kegiatan ini?")
+  ) {
+    return;
+  }
+
+  idSedangDiedit = item.id;
+
+  const jam = String(item.waktu || "").match(/\d{1,2}[:.]\d{2}/g) || [];
+  document.getElementById("tanggal").value = ambilTanggalKey(item);
+  document.getElementById("aktivitas").value = item.aktivitas || "";
+  document.getElementById("mulai").value = formatJamInput(jam[0]);
+  document.getElementById("selesai").value = formatJamInput(jam[1]);
+  document.getElementById("foto").value = "";
+
+  aturModeForm(true);
+  formSection.hidden = false;
+  btnTambah.hidden = true;
+  formSection.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 // ==========================================
 // PENGIRIMAN DATA (SIMPAN)
@@ -40,8 +93,9 @@ formKegiatan.addEventListener("submit", function (e) {
     aktivitas: document.getElementById("aktivitas").value,
     mulai: document.getElementById("mulai").value,
     selesai: document.getElementById("selesai").value,
-    action: "save" 
+    action: idSedangDiedit ? "update" : "save"
   };
+  if (idSedangDiedit) dataForm.id = idSedangDiedit;
 
   const fotoInput = document.getElementById("foto");
   if (fotoInput.files.length > 0) {
@@ -74,7 +128,7 @@ formKegiatan.addEventListener("submit", function (e) {
 
     img.onerror = function() {
       URL.revokeObjectURL(fotoUrlSementara);
-      btnSubmit.textContent = "Simpan Kegiatan";
+      btnSubmit.textContent = labelSubmit();
       btnSubmit.disabled = false;
       alert("Foto tidak bisa dibaca. Coba pilih foto lain.");
     };
@@ -93,20 +147,23 @@ function kirimData(dataForm) {
   })
     .then((response) => response.json())
     .then((result) => {
-      btnSubmit.textContent = "Simpan Kegiatan";
+      btnSubmit.textContent = labelSubmit();
       btnSubmit.disabled = false;
       if (result.success) {
-        alert("Kegiatan berhasil disimpan!");
+        const sedangEdit = idSedangDiedit !== null;
+        alert(sedangEdit ? "Kegiatan berhasil diperbarui!" : "Kegiatan berhasil disimpan!");
+        idSedangDiedit = null;
+        aturModeForm(false);
         formKegiatan.reset();
         formSection.hidden = true;
         btnTambah.hidden = false;
-        muatKegiatan();
+        muatKegiatan(sedangEdit ? halamanSekarang : 1);
       } else {
         alert("Gagal menyimpan: " + result.message);
       }
     })
     .catch((error) => {
-      btnSubmit.textContent = "Simpan Kegiatan";
+      btnSubmit.textContent = labelSubmit();
       btnSubmit.disabled = false;
       alert("Terjadi kesalahan jaringan.");
     });
@@ -260,6 +317,18 @@ function tampilkanKegiatan(halamanAktif = 1) {
       hapusKegiatan(item.id);
     };
 
+    // Tombol Edit (class .btn-edit diatur di styles.css)
+    const btnEdit = document.createElement("button");
+    btnEdit.type = "button";
+    btnEdit.textContent = "✎";
+    btnEdit.className = "btn-edit";
+    btnEdit.title = "Edit Kegiatan";
+    btnEdit.onclick = function () {
+      mulaiEdit(item);
+    };
+
+    tdAksi.appendChild(btnEdit);
+    tdAksi.appendChild(document.createTextNode(" "));
     tdAksi.appendChild(btnHapus);
     tr.appendChild(tdAksi);
     fragmen.appendChild(tr);
@@ -333,7 +402,7 @@ function tampilkanPesanTabel(teks) {
   daftarKegiatan.appendChild(tr);
 }
 
-function muatKegiatan() {
+function muatKegiatan(halamanTujuan = 1) {
   const callbackName = "kodeLookbookCallback_" + Date.now();
   const script = document.createElement("script");
   const timeout = setTimeout(function () {
@@ -355,11 +424,14 @@ function muatKegiatan() {
       dataGlobalKegiatan = urutkanKegiatan(
         Array.isArray(hasil.data) ? hasil.data : [],
       );
-      tampilkanKegiatan(1);
+      tampilkanKegiatan(halamanTujuan);
     } else {
       console.error(
         "Gagal memuat kegiatan:",
         hasil?.message || "Respons tidak valid.",
+      );
+      tampilkanPesanTabel(
+        "Gagal memuat: " + (hasil?.message || "Respons tidak valid."),
       );
     }
   };
@@ -642,7 +714,7 @@ function setGambarRandom() {
 
   // Daftar 10 gambar lokal (hanya berjalan di Laptop/Komputer)
   const daftarGambar = [
-    "Gambar1.jpg",
+   "Gambar1.jpg",
     "Gambar2.jpg",
     "Gambar3.jpg",
     "Gambar4.jpg",
