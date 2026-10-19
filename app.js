@@ -1,5 +1,34 @@
+// ==========================================================
+// >>> GANTI DI SINI SAJA <<<
+// Isi dengan "Web app URL" hasil Deploy Apps Script milik Anda.
+// Bentuknya: https://script.google.com/macros/s/XXXX/exec  (harus berakhiran /exec)
+// ==========================================================
 const API_URL =
   "https://script.google.com/macros/s/AKfycbzSRkLyYQWCWLlp-D_1wDMd1BOa8aR4YR5XNPD8H8nBGwoukhWOF-zX-CxRQvYAdHE/exec";
+
+const PESAN_API_URL =
+  "API_URL belum benar. Isi dengan URL web app Apps Script yang berakhiran /exec (Deploy → Manage deployments).";
+const PESAN_BACKEND_LAMA =
+  "Backend Apps Script belum versi terbaru (belum mendukung lookbook). Tempel Code.gs terbaru, lalu Deploy → Manage deployments → pensil → New version → Deploy.";
+const PETUNJUK_DEPLOY =
+  "Jika internet normal, periksa deployment Apps Script: Execute as = Me, Who has access = Anyone, dan API_URL berakhiran /exec.";
+
+function apiUrlValid() {
+  return /^https:\/\/script\.google\.com\/.+\/exec$/.test(API_URL);
+}
+
+// Membaca balasan server; jika bukan JSON (mis. halaman login Google) beri tanda khusus
+function bacaJson(response) {
+  return response.json().catch(function () {
+    throw new Error("BUKAN_JSON");
+  });
+}
+
+function pesanGagalKirim(error) {
+  return error && error.message === "BUKAN_JSON"
+    ? "Server tidak membalas dengan benar. " + PETUNJUK_DEPLOY
+    : "Terjadi kesalahan jaringan. " + PETUNJUK_DEPLOY;
+}
 
 // Elemen HTML
 const btnTambah = document.getElementById("btn-tambah");
@@ -13,9 +42,16 @@ const btnDownloadWord = document.getElementById("btn-download-word");
 let dataGlobalKegiatan = []; // selalu tersimpan dalam keadaan TERURUT (lihat urutkanKegiatan)
 const ITEM_PER_PAGE = 5; // Batas jumlah kegiatan per halaman
 
+// Lookbook = pemisah antar kegiatan magang (nama default HARUS sama dengan DEFAULT_LOOKBOOK di Code.gs)
+const LOOKBOOK_DEFAULT = "Magang 1";
+let lookbookAktif = LOOKBOOK_DEFAULT;
+let daftarLookbook = [LOOKBOOK_DEFAULT];
+let backendSiap = false; // true hanya setelah daftar lookbook aktif berhasil dimuat & dikonfirmasi server
+
 // Menggunakan event 'pointerdown' agar responsif di HP (tanpa jeda 300ms)
 btnTambah.addEventListener("pointerdown", function (e) {
   e.preventDefault(); // Mencegah jeda klik bawaan HP
+  if (!backendSiap) return; // tunggu data lookbook selesai dimuat
   formSection.hidden = false;
   btnTambah.hidden = true;
 });
@@ -39,8 +75,7 @@ function labelSubmit() {
 }
 
 function aturModeForm(sedangEdit) {
-  const judul = formSection.querySelector("h2");
-  if (judul) judul.textContent = sedangEdit ? "Edit Kegiatan" : "Tambah Kegiatan";
+  perbaruiJudulLookbook(sedangEdit);
   const labelFoto = document.querySelector('label[for="foto"]');
   if (labelFoto) {
     labelFoto.textContent = sedangEdit
@@ -81,6 +116,221 @@ function mulaiEdit(item) {
 }
 
 // ==========================================
+// LOOKBOOK (PEMISAH ANTAR KEGIATAN MAGANG)
+// ==========================================
+function normalisasiLookbook(nama) {
+  return (
+    String(nama || "").replace(/\s+/g, " ").trim().slice(0, 40) ||
+    LOOKBOOK_DEFAULT
+  );
+}
+
+function slugLookbook(nama) {
+  // "Magang 2" -> "Magang_2" (untuk nama file Word)
+  const slug = String(nama || "")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return slug || "Lookbook";
+}
+
+function bacaPenyimpanan(kunci) {
+  try {
+    return window.localStorage.getItem(kunci);
+  } catch (e) {
+    return null;
+  }
+}
+
+function tulisPenyimpanan(kunci, nilai) {
+  try {
+    window.localStorage.setItem(kunci, nilai);
+  } catch (e) {}
+}
+
+// Nama lookbook yang dibuat di perangkat ini tetapi belum punya kegiatan di server
+function bacaLookbookTambahan() {
+  try {
+    const daftar = JSON.parse(bacaPenyimpanan("lookbookTambahan") || "[]");
+    return Array.isArray(daftar) ? daftar.map(normalisasiLookbook) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function simpanLookbookTambahan(nama) {
+  const daftar = bacaLookbookTambahan();
+  if (daftar.indexOf(nama) === -1) daftar.push(nama);
+  tulisPenyimpanan("lookbookTambahan", JSON.stringify(daftar));
+}
+
+function tentukanLookbookAwal() {
+  // Urutan prioritas: ?lb=... di alamat, lalu pilihan terakhir, lalu default
+  let dariUrl = null;
+  try {
+    dariUrl = new URLSearchParams(window.location.search).get("lb");
+  } catch (e) {}
+  return normalisasiLookbook(
+    dariUrl || bacaPenyimpanan("lookbookAktif") || LOOKBOOK_DEFAULT,
+  );
+}
+
+function simpanLookbookAktif() {
+  tulisPenyimpanan("lookbookAktif", lookbookAktif);
+  // Alamat ikut berubah (?lb=Magang 2) supaya bisa di-bookmark / dijadikan pintasan
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("lb", lookbookAktif);
+    window.history.replaceState(null, "", url.toString());
+  } catch (e) {}
+}
+
+function gabungkanDaftarLookbook(daftarServer) {
+  const hasil = [LOOKBOOK_DEFAULT];
+  (daftarServer || [])
+    .concat(bacaLookbookTambahan(), [lookbookAktif])
+    .forEach(function (n) {
+      const nama = normalisasiLookbook(n);
+      if (hasil.indexOf(nama) === -1) hasil.push(nama);
+    });
+  return hasil;
+}
+
+function perbaruiJudulLookbook(sedangEdit = idSedangDiedit !== null) {
+  const judulForm = formSection.querySelector("h2");
+  if (judulForm) {
+    judulForm.textContent =
+      (sedangEdit ? "Edit Kegiatan" : "Tambah Kegiatan") + " — " + lookbookAktif;
+  }
+  const judulDaftar = document.querySelector(".toolbar h2");
+  if (judulDaftar) judulDaftar.textContent = "Daftar Kegiatan — " + lookbookAktif;
+  document.title = "Lookbook | " + lookbookAktif;
+}
+
+function isiPilihanLookbook() {
+  const pilih = document.getElementById("pilih-lookbook");
+  if (!pilih) return;
+  pilih.replaceChildren();
+  daftarLookbook.forEach(function (nama) {
+    const opsi = document.createElement("option");
+    opsi.value = nama;
+    opsi.textContent = nama;
+    pilih.appendChild(opsi);
+  });
+  pilih.value = lookbookAktif;
+}
+
+function buatBarLookbook() {
+  const main = document.querySelector("main");
+  if (!main) return;
+
+  daftarLookbook = gabungkanDaftarLookbook([]);
+
+  const bar = document.createElement("div");
+  bar.id = "bar-lookbook";
+  bar.className = "lookbook-bar";
+
+  const label = document.createElement("label");
+  label.htmlFor = "pilih-lookbook";
+  label.textContent = "Lookbook";
+
+  const pilih = document.createElement("select");
+  pilih.id = "pilih-lookbook";
+  pilih.addEventListener("change", function () {
+    gantiLookbook(pilih.value);
+  });
+
+  const btnBaru = document.createElement("button");
+  btnBaru.type = "button";
+  btnBaru.id = "btn-lookbook-baru";
+  btnBaru.className = "btn-secondary";
+  btnBaru.textContent = "+ Lookbook Baru";
+  btnBaru.addEventListener("click", buatLookbookBaru);
+
+  bar.appendChild(label);
+  bar.appendChild(pilih);
+  bar.appendChild(btnBaru);
+  main.insertBefore(bar, main.firstChild);
+
+  isiPilihanLookbook();
+}
+
+function muatDaftarLookbook() {
+  jsonpRequest("action=lookbooks", 30000).then(
+    function (hasil) {
+      const daftar =
+        hasil && hasil.success && Array.isArray(hasil.data) ? hasil.data : [];
+      daftarLookbook = gabungkanDaftarLookbook(daftar);
+      isiPilihanLookbook();
+    },
+    function () {}, // gagal memuat daftar tidak fatal: pilihan lokal tetap tersedia
+  );
+}
+
+function gantiLookbook(nama) {
+  nama = normalisasiLookbook(nama);
+  if (nama === lookbookAktif) {
+    isiPilihanLookbook();
+    return;
+  }
+
+  if (btnSubmit.disabled) {
+    alert("Tunggu proses penyimpanan selesai dulu.");
+    isiPilihanLookbook();
+    return;
+  }
+
+  if (
+    !formSection.hidden &&
+    !confirm("Form sedang terbuka. Pindah lookbook akan menutup form dan membuang isiannya. Lanjut?")
+  ) {
+    isiPilihanLookbook(); // kembalikan pilihan semula
+    return;
+  }
+
+  // Tutup form dan kembali ke mode tambah
+  idSedangDiedit = null;
+  lookbookAktif = nama;
+  simpanLookbookAktif();
+  formKegiatan.reset();
+  formSection.hidden = true;
+  btnTambah.hidden = false;
+  aturModeForm(false);
+  isiPilihanLookbook();
+
+  // Kosongkan tampilan lama agar kegiatan lookbook sebelumnya tidak terlihat
+  dataGlobalKegiatan = [];
+  halamanSekarang = 1;
+  buatTombolHalaman(0, 1);
+  tampilkanPesanTabel("Memuat data...");
+  muatKegiatan(1);
+}
+
+function buatLookbookBaru() {
+  const input = prompt("Nama lookbook baru (contoh: Magang 2):");
+  if (input === null) return;
+
+  const bersih = String(input).replace(/\s+/g, " ").trim().slice(0, 40);
+  if (!bersih) {
+    alert("Nama lookbook tidak boleh kosong.");
+    return;
+  }
+
+  const sudahAda = daftarLookbook.find(function (n) {
+    return n.toLowerCase() === bersih.toLowerCase();
+  });
+  if (sudahAda) {
+    alert('Lookbook "' + sudahAda + '" sudah ada. Pindah ke lookbook itu.');
+    gantiLookbook(sudahAda);
+    return;
+  }
+
+  daftarLookbook.push(bersih);
+  simpanLookbookTambahan(bersih);
+  isiPilihanLookbook();
+  gantiLookbook(bersih);
+}
+
+// ==========================================
 // PENGIRIMAN DATA (SIMPAN)
 // ==========================================
 formKegiatan.addEventListener("submit", function (e) {
@@ -96,6 +346,7 @@ formKegiatan.addEventListener("submit", function (e) {
     action: idSedangDiedit ? "update" : "save"
   };
   if (idSedangDiedit) dataForm.id = idSedangDiedit;
+  dataForm.lookbook = lookbookAktif; // kegiatan baru masuk ke lookbook yang sedang aktif
 
   const fotoInput = document.getElementById("foto");
   if (fotoInput.files.length > 0) {
@@ -140,12 +391,26 @@ formKegiatan.addEventListener("submit", function (e) {
 });
 
 function kirimData(dataForm) {
+  if (!apiUrlValid()) {
+    btnSubmit.textContent = labelSubmit();
+    btnSubmit.disabled = false;
+    alert(PESAN_API_URL);
+    return;
+  }
+
+  if (!backendSiap) {
+    btnSubmit.textContent = labelSubmit();
+    btnSubmit.disabled = false;
+    alert("Data lookbook belum selesai dimuat. Tunggu sebentar lalu coba lagi.");
+    return;
+  }
+
   fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(dataForm),
   })
-    .then((response) => response.json())
+    .then(bacaJson)
     .then((result) => {
       btnSubmit.textContent = labelSubmit();
       btnSubmit.disabled = false;
@@ -165,7 +430,7 @@ function kirimData(dataForm) {
     .catch((error) => {
       btnSubmit.textContent = labelSubmit();
       btnSubmit.disabled = false;
-      alert("Terjadi kesalahan jaringan.");
+      alert(pesanGagalKirim(error));
     });
 }
 
@@ -182,7 +447,7 @@ function hapusKegiatan(idKegiatan) {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ action: "delete", id: idKegiatan }),
   })
-    .then((response) => response.json())
+    .then(bacaJson)
     .then((result) => {
       if (result.success) {
         alert("Kegiatan berhasil dihapus!");
@@ -195,7 +460,7 @@ function hapusKegiatan(idKegiatan) {
       }
     })
     .catch((error) => {
-      alert("Terjadi kesalahan jaringan.");
+      alert(pesanGagalKirim(error));
     });
 }
 
@@ -403,12 +668,18 @@ function tampilkanPesanTabel(teks) {
 }
 
 function muatKegiatan(halamanTujuan = 1) {
+  const lookbookDiminta = lookbookAktif;
+  backendSiap = false;
+  btnTambah.disabled = true;
+
   const callbackName = "kodeLookbookCallback_" + Date.now();
   const script = document.createElement("script");
   const timeout = setTimeout(function () {
     bersihkan();
     console.error("Waktu pemuatan kegiatan habis.");
-    tampilkanPesanTabel("Memuat data terlalu lama. Muat ulang halaman.");
+    if (lookbookDiminta === lookbookAktif) {
+      tampilkanPesanTabel("Memuat data terlalu lama. Muat ulang halaman.");
+    }
   }, 45000);
 
   function bersihkan() {
@@ -419,11 +690,21 @@ function muatKegiatan(halamanTujuan = 1) {
 
   window[callbackName] = function (hasil) {
     bersihkan();
+    // Lookbook sudah diganti saat menunggu: abaikan balasan lama agar data tidak bercampur
+    if (lookbookDiminta !== lookbookAktif) return;
+
     if (hasil && hasil.success) {
+      // Server lama tidak mengirim 'lookbook' dan mengabaikan filter: jangan tampilkan
+      if (hasil.lookbook !== lookbookDiminta) {
+        tampilkanPesanTabel(PESAN_BACKEND_LAMA);
+        return;
+      }
       // Diurutkan SEKALI di sini: tanggal -> jam mulai
       dataGlobalKegiatan = urutkanKegiatan(
         Array.isArray(hasil.data) ? hasil.data : [],
       );
+      backendSiap = true;
+      btnTambah.disabled = false;
       tampilkanKegiatan(halamanTujuan);
     } else {
       console.error(
@@ -439,11 +720,19 @@ function muatKegiatan(halamanTujuan = 1) {
   script.onerror = function () {
     bersihkan();
     console.error("Gagal menghubungi Google Sheets.");
-    tampilkanPesanTabel("Gagal memuat data. Periksa koneksi lalu muat ulang.");
+    if (lookbookDiminta === lookbookAktif) {
+      tampilkanPesanTabel(
+        "Gagal memuat data. Periksa koneksi lalu muat ulang. " + PETUNJUK_DEPLOY,
+      );
+    }
   };
 
   script.src =
-    API_URL + "?action=list&callback=" + encodeURIComponent(callbackName);
+    API_URL +
+    "?action=list&lb=" +
+    encodeURIComponent(lookbookDiminta) +
+    "&callback=" +
+    encodeURIComponent(callbackName);
   document.body.appendChild(script);
 }
 
@@ -533,7 +822,7 @@ function formatTotalWaktu(totalMenit) {
   return `${menit} menit`;
 }
 
-function buatDanUnduhWord(dataKegiatan) {
+function buatDanUnduhWord(dataKegiatan, namaLookbook) {
   // dataKegiatan berasal dari dataGlobalKegiatan yang sudah terurut
   // (tanggal, lalu jam mulai), sehingga pengelompokan per tanggal
   // di bawah otomatis kronologis.
@@ -637,7 +926,7 @@ function buatDanUnduhWord(dataKegiatan) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "Logbook_Magang.doc";
+  link.download = "Logbook_" + slugLookbook(namaLookbook) + ".doc"; // mis. Logbook_Magang_2.doc
 
   document.body.appendChild(link);
   link.click();
@@ -656,11 +945,15 @@ btnDownloadWord.addEventListener("click", function () {
     return;
   }
 
+  // Simpan keadaan saat tombol ditekan (jika lookbook diganti saat foto diambil, tetap konsisten)
+  const dataSaatKlik = dataGlobalKegiatan;
+  const lookbookSaatKlik = lookbookAktif;
+
   const teksAsli = btnDownloadWord.textContent;
   btnDownloadWord.disabled = true;
   btnDownloadWord.textContent = "Menyiapkan foto...";
 
-  jsonpRequest("action=foto", 60000)
+  jsonpRequest("action=foto&lb=" + encodeURIComponent(lookbookSaatKlik), 60000)
     .then(
       function (hasil) {
         if (!hasil || !hasil.success || !Array.isArray(hasil.data)) return null;
@@ -676,7 +969,7 @@ btnDownloadWord.addEventListener("click", function () {
 
       if (!daftarFoto) {
         if (confirm("Foto gagal diambil dari server. Unduh Word tanpa foto?")) {
-          buatDanUnduhWord(dataGlobalKegiatan);
+          buatDanUnduhWord(dataSaatKlik, lookbookSaatKlik);
         }
         return;
       }
@@ -687,17 +980,27 @@ btnDownloadWord.addEventListener("click", function () {
       });
 
       // Foto digabung hanya untuk file Word (tidak disimpan di memori halaman)
-      const dataWord = dataGlobalKegiatan.map(function (item) {
+      const dataWord = dataSaatKlik.map(function (item) {
         return petaFoto[item.id]
           ? Object.assign({}, item, { fotoBase64: petaFoto[item.id] })
           : item;
       });
 
-      buatDanUnduhWord(dataWord);
+      buatDanUnduhWord(dataWord, lookbookSaatKlik);
     });
 });
 
-muatKegiatan();
+lookbookAktif = tentukanLookbookAwal();
+simpanLookbookAktif();
+buatBarLookbook();
+perbaruiJudulLookbook(false);
+
+if (apiUrlValid()) {
+  muatKegiatan();
+  muatDaftarLookbook();
+} else {
+  tampilkanPesanTabel(PESAN_API_URL);
+}
 
 /// ==========================================
 // LOGIKA GAMBAR MENGAMBANG (DIBATASI KHUSUS LAPTOP)
@@ -714,7 +1017,7 @@ function setGambarRandom() {
 
   // Daftar 10 gambar lokal (hanya berjalan di Laptop/Komputer)
   const daftarGambar = [
-   "Gambar1.jpg",
+    "Gambar1.jpg",
     "Gambar2.jpg",
     "Gambar3.jpg",
     "Gambar4.jpg",
