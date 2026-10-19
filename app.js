@@ -163,6 +163,46 @@ function simpanLookbookTambahan(nama) {
   tulisPenyimpanan("lookbookTambahan", JSON.stringify(daftar));
 }
 
+function hapusLookbookTambahan(nama) {
+  const sisa = bacaLookbookTambahan().filter(function (n) {
+    return n.toLowerCase() !== String(nama).toLowerCase();
+  });
+  tulisPenyimpanan("lookbookTambahan", JSON.stringify(sisa));
+}
+
+// Menyimpan nama lookbook ke server agar muncul di semua perangkat (HP & laptop)
+function kirimLookbookKeServer(nama) {
+  if (!apiUrlValid()) return Promise.resolve(false);
+  return fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "addLookbook", nama: nama }),
+  })
+    .then(bacaJson)
+    .then(function (hasil) {
+      return !!(hasil && hasil.success);
+    })
+    .catch(function () {
+      return false;
+    });
+}
+
+// Lookbook yang dulu hanya dibuat di perangkat ini dikirim ke server (sekali, otomatis)
+function sinkronkanLookbookLokal(daftarServer) {
+  bacaLookbookTambahan().forEach(function (nama) {
+    const adaDiServer = daftarServer.some(function (n) {
+      return n.toLowerCase() === nama.toLowerCase();
+    });
+    if (adaDiServer) {
+      hapusLookbookTambahan(nama);
+    } else {
+      kirimLookbookKeServer(nama).then(function (ok) {
+        if (ok) hapusLookbookTambahan(nama);
+      });
+    }
+  });
+}
+
 function tentukanLookbookAwal() {
   // Urutan prioritas: ?lb=... di alamat, lalu pilihan terakhir, lalu default
   let dariUrl = null;
@@ -257,10 +297,11 @@ function buatBarLookbook() {
 function muatDaftarLookbook() {
   jsonpRequest("action=lookbooks", 30000).then(
     function (hasil) {
-      const daftar =
-        hasil && hasil.success && Array.isArray(hasil.data) ? hasil.data : [];
+      const valid = !!(hasil && hasil.success && Array.isArray(hasil.data));
+      const daftar = valid ? hasil.data : [];
       daftarLookbook = gabungkanDaftarLookbook(daftar);
       isiPilihanLookbook();
+      if (valid) sinkronkanLookbookLokal(daftar);
     },
     function () {}, // gagal memuat daftar tidak fatal: pilihan lokal tetap tersedia
   );
@@ -327,6 +368,19 @@ function buatLookbookBaru() {
   daftarLookbook.push(bersih);
   simpanLookbookTambahan(bersih);
   isiPilihanLookbook();
+
+  // Simpan juga ke server supaya langsung muncul di perangkat lain
+  kirimLookbookKeServer(bersih).then(function (ok) {
+    if (ok) {
+      hapusLookbookTambahan(bersih);
+    } else {
+      alert(
+        'Lookbook "' + bersih + '" baru tersimpan di perangkat ini. ' +
+          "Pastikan Code.gs sudah di-deploy versi terbaru; nama akan dikirim otomatis saat halaman dibuka lagi.",
+      );
+    }
+  });
+
   gantiLookbook(bersih);
 }
 
