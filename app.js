@@ -326,7 +326,7 @@ function buatBarLookbook() {
 }
 
 function muatDaftarLookbook() {
-  jsonpRequest("action=lookbooks", 30000).then(
+  ambilData("action=lookbooks", 30000).then(
     function (hasil) {
       const valid = !!(hasil && hasil.success && Array.isArray(hasil.data));
       const daftar = valid ? hasil.data : [];
@@ -764,90 +764,79 @@ function muatKegiatan(halamanTujuan = 1, percobaan = 1) {
     false,
   );
 
-  const callbackName = "kodeLookbookCallback_" + Date.now();
-  const script = document.createElement("script");
-  const timeout = setTimeout(function () {
-    bersihkan();
-    console.error("Waktu pemuatan kegiatan habis.");
-    tampilkanGagalMuat("Memuat data terlalu lama. Tekan Coba lagi.");
-  }, 45000);
-
-  function bersihkan() {
-    clearTimeout(timeout);
-    delete window[callbackName];
-    script.remove();
-  }
-
-  function tampilkanGagalMuat(pesanTabel) {
+  function tampilkanGagalMuat(pesanTabel, detail) {
     if (lookbookDiminta !== lookbookAktif) return;
     tampilkanPesanTabel(pesanTabel);
     setStatusLookbook(
-      "Data belum bisa dimuat, tombol Tambah dikunci sampai berhasil.",
+      "Data belum bisa dimuat" +
+        (detail ? " (" + detail + ")" : "") +
+        ", tombol Tambah dikunci sampai berhasil.",
       true,
     );
   }
 
-  window[callbackName] = function (hasil) {
-    bersihkan();
-    // Lookbook sudah diganti saat menunggu: abaikan balasan lama agar data tidak bercampur
-    if (lookbookDiminta !== lookbookAktif) return;
+  ambilData("action=list&lb=" + encodeURIComponent(lookbookDiminta), 45000)
+    .then(
+      function (hasil) {
+        // Lookbook sudah diganti saat menunggu: abaikan balasan lama agar data tidak bercampur
+        if (lookbookDiminta !== lookbookAktif) return;
 
-    if (hasil && hasil.success) {
-      // Server lama tidak mengirim 'lookbook' dan mengabaikan filter: jangan tampilkan
-      if (hasil.lookbook !== lookbookDiminta) {
-        tampilkanPesanTabel(PESAN_BACKEND_LAMA);
-        setStatusLookbook(
-          "Backend Apps Script belum versi terbaru, tombol Tambah dikunci.",
-          true,
-        );
-        return;
-      }
-      // Diurutkan SEKALI di sini: tanggal -> jam mulai
-      dataGlobalKegiatan = urutkanKegiatan(
-        Array.isArray(hasil.data) ? hasil.data : [],
-      );
-      backendSiap = true;
-      btnTambah.disabled = false;
-      btnTambah.title = "";
-      setStatusLookbook("", false);
-      tampilkanKegiatan(halamanTujuan);
-    } else {
-      console.error(
-        "Gagal memuat kegiatan:",
-        hasil?.message || "Respons tidak valid.",
-      );
-      tampilkanGagalMuat(
-        "Gagal memuat: " + (hasil?.message || "Respons tidak valid."),
-      );
-    }
-  };
-
-  script.onerror = function () {
-    bersihkan();
-    console.error("Gagal menghubungi Google Sheets.");
-    if (lookbookDiminta !== lookbookAktif) return;
-
-    // Koneksi HP sering putus-nyambung: coba lagi otomatis beberapa kali
-    if (percobaan < MAKS_PERCOBAAN_MUAT) {
-      setTimeout(function () {
-        if (lookbookDiminta === lookbookAktif) {
-          muatKegiatan(halamanTujuan, percobaan + 1);
+        if (hasil && hasil.success) {
+          // Server lama tidak mengirim 'lookbook' dan mengabaikan filter: jangan tampilkan
+          if (hasil.lookbook !== lookbookDiminta) {
+            tampilkanPesanTabel(PESAN_BACKEND_LAMA);
+            setStatusLookbook(
+              "Backend Apps Script belum versi terbaru, tombol Tambah dikunci.",
+              true,
+            );
+            return;
+          }
+          // Diurutkan SEKALI di sini: tanggal -> jam mulai
+          dataGlobalKegiatan = urutkanKegiatan(
+            Array.isArray(hasil.data) ? hasil.data : [],
+          );
+          backendSiap = true;
+          btnTambah.disabled = false;
+          btnTambah.title = "";
+          setStatusLookbook("", false);
+          tampilkanKegiatan(halamanTujuan);
+        } else {
+          console.error(
+            "Gagal memuat kegiatan:",
+            hasil?.message || "Respons tidak valid.",
+          );
+          tampilkanGagalMuat(
+            "Gagal memuat: " + (hasil?.message || "Respons tidak valid."),
+          );
         }
-      }, JEDA_ULANG_MUAT);
-      return;
-    }
-    tampilkanGagalMuat(
-      "Gagal memuat data. Periksa koneksi lalu tekan Coba lagi. " + PETUNJUK_DEPLOY,
-    );
-  };
+      },
+      function (error) {
+        console.error("Gagal memuat kegiatan:", error);
+        if (lookbookDiminta !== lookbookAktif) return;
 
-  script.src =
-    API_URL +
-    "?action=list&lb=" +
-    encodeURIComponent(lookbookDiminta) +
-    "&callback=" +
-    encodeURIComponent(callbackName);
-  document.body.appendChild(script);
+        const waktuHabis = !!(error && error.message === "Waktu habis.");
+
+        // Koneksi HP sering putus-nyambung: coba lagi otomatis beberapa kali
+        if (!waktuHabis && percobaan < MAKS_PERCOBAAN_MUAT) {
+          setTimeout(function () {
+            if (lookbookDiminta === lookbookAktif) {
+              muatKegiatan(halamanTujuan, percobaan + 1);
+            }
+          }, JEDA_ULANG_MUAT);
+          return;
+        }
+
+        tampilkanGagalMuat(
+          waktuHabis
+            ? "Memuat data terlalu lama. Tekan Coba lagi."
+            : "Gagal memuat data. Periksa koneksi lalu tekan Coba lagi. " + PETUNJUK_DEPLOY,
+          detailError(error),
+        );
+      },
+    )
+    .catch(function (e) {
+      console.error(e);
+    });
 }
 
 // ==========================================
@@ -881,6 +870,46 @@ function jsonpRequest(query, timeoutMs) {
       API_URL + "?" + query + "&callback=" + encodeURIComponent(callbackName);
     document.body.appendChild(script);
   });
+}
+
+// ==========================================
+// CADANGAN: ambil data lewat fetch (jika tag <script> diblokir di HP)
+// ==========================================
+function fetchJson(query, timeoutMs) {
+  const kendali =
+    typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = setTimeout(function () {
+    if (kendali) kendali.abort();
+  }, timeoutMs);
+
+  return fetch(API_URL + "?" + query, kendali ? { signal: kendali.signal } : undefined)
+    .then(bacaJson)
+    .then(
+      function (hasil) {
+        clearTimeout(timer);
+        return hasil;
+      },
+      function (error) {
+        clearTimeout(timer);
+        throw error;
+      },
+    );
+}
+
+// Jalur utama: JSONP. Jika gagal terhubung (bukan karena lambat), coba jalur fetch.
+function ambilData(query, timeoutMs) {
+  return jsonpRequest(query, timeoutMs).catch(function (error) {
+    if (error && error.message === "Waktu habis.") throw error;
+    return fetchJson(query, timeoutMs);
+  });
+}
+
+// Alasan gagal dalam bahasa singkat (ditampilkan di teks status agar mudah dilacak)
+function detailError(error) {
+  const pesan = error && error.message ? error.message : "";
+  if (pesan === "Waktu habis.") return "waktu habis";
+  if (pesan === "BUKAN_JSON") return "balasan bukan data, cek akses deployment";
+  return pesan || "tidak diketahui";
 }
 
 // ==========================================
@@ -1067,7 +1096,7 @@ btnDownloadWord.addEventListener("click", function () {
   btnDownloadWord.disabled = true;
   btnDownloadWord.textContent = "Menyiapkan foto...";
 
-  jsonpRequest("action=foto&lb=" + encodeURIComponent(lookbookSaatKlik), 60000)
+  ambilData("action=foto&lb=" + encodeURIComponent(lookbookSaatKlik), 60000)
     .then(
       function (hasil) {
         if (!hasil || !hasil.success || !Array.isArray(hasil.data)) return null;
