@@ -47,6 +47,8 @@ const LOOKBOOK_DEFAULT = "Magang 1";
 let lookbookAktif = LOOKBOOK_DEFAULT;
 let daftarLookbook = [LOOKBOOK_DEFAULT];
 let backendSiap = false; // true hanya setelah daftar lookbook aktif berhasil dimuat & dikonfirmasi server
+const MAKS_PERCOBAAN_MUAT = 3; // jumlah percobaan otomatis jika koneksi gagal
+const JEDA_ULANG_MUAT = 3000; // jeda antar percobaan (ms)
 
 // Menggunakan event 'pointerdown' agar responsif di HP (tanpa jeda 300ms)
 btnTambah.addEventListener("pointerdown", function (e) {
@@ -259,6 +261,17 @@ function isiPilihanLookbook() {
   pilih.value = lookbookAktif;
 }
 
+// Teks status di bawah pilihan lookbook (menjelaskan kenapa tombol Tambah terkunci)
+function setStatusLookbook(teks, tampilkanCobaLagi) {
+  const el = document.getElementById("status-lookbook");
+  if (el) {
+    el.textContent = teks || "";
+    el.hidden = !teks;
+  }
+  const btn = document.getElementById("btn-muat-ulang");
+  if (btn) btn.hidden = !tampilkanCobaLagi;
+}
+
 function buatBarLookbook() {
   const main = document.querySelector("main");
   if (!main) return;
@@ -286,9 +299,27 @@ function buatBarLookbook() {
   btnBaru.textContent = "+ Lookbook Baru";
   btnBaru.addEventListener("click", buatLookbookBaru);
 
+  const status = document.createElement("div");
+  status.id = "status-lookbook";
+  status.className = "lookbook-status";
+  status.hidden = true;
+
+  const btnUlang = document.createElement("button");
+  btnUlang.type = "button";
+  btnUlang.id = "btn-muat-ulang";
+  btnUlang.className = "btn-secondary";
+  btnUlang.textContent = "Coba lagi";
+  btnUlang.hidden = true;
+  btnUlang.addEventListener("click", function () {
+    muatKegiatan(1);
+    muatDaftarLookbook();
+  });
+
   bar.appendChild(label);
   bar.appendChild(pilih);
   bar.appendChild(btnBaru);
+  bar.appendChild(status);
+  bar.appendChild(btnUlang);
   main.insertBefore(bar, main.firstChild);
 
   isiPilihanLookbook();
@@ -721,25 +752,39 @@ function tampilkanPesanTabel(teks) {
   daftarKegiatan.appendChild(tr);
 }
 
-function muatKegiatan(halamanTujuan = 1) {
+function muatKegiatan(halamanTujuan = 1, percobaan = 1) {
   const lookbookDiminta = lookbookAktif;
   backendSiap = false;
   btnTambah.disabled = true;
+  btnTambah.title = "Menunggu data lookbook selesai dimuat";
+  setStatusLookbook(
+    percobaan > 1
+      ? "Memuat ulang data (percobaan " + percobaan + " dari " + MAKS_PERCOBAAN_MUAT + ")..."
+      : "Memuat data lookbook...",
+    false,
+  );
 
   const callbackName = "kodeLookbookCallback_" + Date.now();
   const script = document.createElement("script");
   const timeout = setTimeout(function () {
     bersihkan();
     console.error("Waktu pemuatan kegiatan habis.");
-    if (lookbookDiminta === lookbookAktif) {
-      tampilkanPesanTabel("Memuat data terlalu lama. Muat ulang halaman.");
-    }
+    tampilkanGagalMuat("Memuat data terlalu lama. Tekan Coba lagi.");
   }, 45000);
 
   function bersihkan() {
     clearTimeout(timeout);
     delete window[callbackName];
     script.remove();
+  }
+
+  function tampilkanGagalMuat(pesanTabel) {
+    if (lookbookDiminta !== lookbookAktif) return;
+    tampilkanPesanTabel(pesanTabel);
+    setStatusLookbook(
+      "Data belum bisa dimuat, tombol Tambah dikunci sampai berhasil.",
+      true,
+    );
   }
 
   window[callbackName] = function (hasil) {
@@ -751,6 +796,10 @@ function muatKegiatan(halamanTujuan = 1) {
       // Server lama tidak mengirim 'lookbook' dan mengabaikan filter: jangan tampilkan
       if (hasil.lookbook !== lookbookDiminta) {
         tampilkanPesanTabel(PESAN_BACKEND_LAMA);
+        setStatusLookbook(
+          "Backend Apps Script belum versi terbaru, tombol Tambah dikunci.",
+          true,
+        );
         return;
       }
       // Diurutkan SEKALI di sini: tanggal -> jam mulai
@@ -759,13 +808,15 @@ function muatKegiatan(halamanTujuan = 1) {
       );
       backendSiap = true;
       btnTambah.disabled = false;
+      btnTambah.title = "";
+      setStatusLookbook("", false);
       tampilkanKegiatan(halamanTujuan);
     } else {
       console.error(
         "Gagal memuat kegiatan:",
         hasil?.message || "Respons tidak valid.",
       );
-      tampilkanPesanTabel(
+      tampilkanGagalMuat(
         "Gagal memuat: " + (hasil?.message || "Respons tidak valid."),
       );
     }
@@ -774,11 +825,20 @@ function muatKegiatan(halamanTujuan = 1) {
   script.onerror = function () {
     bersihkan();
     console.error("Gagal menghubungi Google Sheets.");
-    if (lookbookDiminta === lookbookAktif) {
-      tampilkanPesanTabel(
-        "Gagal memuat data. Periksa koneksi lalu muat ulang. " + PETUNJUK_DEPLOY,
-      );
+    if (lookbookDiminta !== lookbookAktif) return;
+
+    // Koneksi HP sering putus-nyambung: coba lagi otomatis beberapa kali
+    if (percobaan < MAKS_PERCOBAAN_MUAT) {
+      setTimeout(function () {
+        if (lookbookDiminta === lookbookAktif) {
+          muatKegiatan(halamanTujuan, percobaan + 1);
+        }
+      }, JEDA_ULANG_MUAT);
+      return;
     }
+    tampilkanGagalMuat(
+      "Gagal memuat data. Periksa koneksi lalu tekan Coba lagi. " + PETUNJUK_DEPLOY,
+    );
   };
 
   script.src =
